@@ -8,10 +8,13 @@ from GPflow.gpflow.utilities import print_summary, set_trainable, to_default_flo
 from GPflow.gpflow.models import maximum_log_likelihood_objective, training_loss_closure
 from GPflow.gpflow.ci_utils import ci_niter
 
-from GPflow.gpflow.covariances.dispatch import Kuf, Kuu
+from sklearn.metrics import mean_squared_error
 
+from timeit import default_timer as timer
 
-def plot(model, color, ax, lims=[-1,11], show_xs=True, show_ind_locations=True):
+# Generic functions
+
+def plot_univariate(model, color, ax, lims=[-1,11], show_xs=True, show_ind_locations=True):
     x = model.data[0]
     y = model.data[1]
     xx = np.linspace(lims[0], lims[1], 100).reshape(-1, 1)
@@ -36,6 +39,73 @@ def plot(model, color, ax, lims=[-1,11], show_xs=True, show_ind_locations=True):
     # Plot title
     ax.set_title(type(model).__name__)
     ax.set_xlim(lims[0], lims[1])
+
+
+def create_models(data,
+                  kernel,
+                  inducing_variable,
+                  optimize=True,
+                  opt= gpflow.optimizers.Scipy(),  # BFGS
+                  niter = 1000,
+                  verbose=False
+                  ):
+
+    m1 = gpflow.models.GPR(data, kernel=kernel)
+
+    m2 = gpflow.models.SGPR(
+        data, kernel=kernel, inducing_variable=inducing_variable
+    )
+    set_trainable(m2.inducing_variable, False)
+
+    m3 = gpflow.models.GPRFITC(
+        data, kernel=kernel, inducing_variable=inducing_variable
+    )
+    set_trainable(m3.inducing_variable, False)
+
+    m4 = gpflow.models.GPRPITC(
+        data, kernel=kernel, inducing_variable=inducing_variable
+    )
+    set_trainable(m4.inducing_variable, False)
+
+    models = [m1, m2, m3, m4]
+
+    if verbose:
+        for model in models:
+            print_summary(model)
+
+    times = []
+    if optimize:
+        # Optimize models
+        for model in models:
+            print("Starting training of ", type(model).__name__)
+            loss_closure = training_loss_closure(model, data)
+            start = timer()
+            opt.minimize(
+                loss_closure,
+                variables=model.trainable_variables,
+                options=dict(maxiter=ci_niter(niter)),
+                compile=True,
+            )
+            end = timer()
+            print("Finished training of ", type(model).__name__)
+            times.append(end-start)
+
+    return models, times
+
+
+def mse_test(model, test_data):
+    test_set, test_labels = data
+    X_t = tf.convert_to_tensor(test_set, dtype=default_float())
+    mean, var = model.predict_f(X_t) # REVIEW: maybe predict_f_samples/predict_y
+    return mean_squared_error(mean, test_labels)
+
+
+# REVIEW:
+def nlpd_test(model, test_data):
+    N = len(test_data[0])
+    return 1/N*np.sum(model.predict_log_density(test_data))
+
+
 
 # #####################################
 # GAUSSIAN PROCESS REGRESSION EXAMPLE (d=2)
@@ -62,47 +132,16 @@ inducing_variable = tf.convert_to_tensor(X_ind, dtype=default_float())
 # Create models
 kernel = gpflow.kernels.Matern32()
 
-m1 = gpflow.models.GPR(data, kernel=kernel)
+models, _ = create_models(data, kernel, inducing_variable)
 
-m2 = gpflow.models.SGPR(
-    data, kernel=kernel, inducing_variable=inducing_variable
-)
-set_trainable(m2.inducing_variable, False)
-
-m3 = gpflow.models.GPRFITC(
-    data, kernel=kernel, inducing_variable=inducing_variable
-)
-set_trainable(m3.inducing_variable, False)
-
-m4 = gpflow.models.GPRPITC(
-    data, kernel=kernel, inducing_variable=inducing_variable
-)
-set_trainable(m4.inducing_variable, False)
-
-models = [m1,m2,m3,m4]
-
-for model in models:
-    print_summary(model)
-
-# Optimize models
-for model in models:
-    print("Starting training of ", type(model).__name__)
-    opt = gpflow.optimizers.Scipy() # BFGS by default
-    loss_closure = training_loss_closure(model, data)
-    opt.minimize(
-        loss_closure,
-        variables=model.trainable_variables,
-        options=dict(maxiter=ci_niter(1000)),
-        compile=True,
-    )
-    print("Finished training of ", type(model).__name__)
+GPR, SGPR, FITC, PITC = models
 
 # Plot results
 f, ax = plt.subplots(2, 2, figsize=(12, 9), sharex=True, sharey=True)
-plot(m1, "C0", ax[0, 0], show_xs=True)
-plot(m2, "C1", ax[0, 1], show_xs=True)
-plot(m3, "C2", ax[1, 0], show_xs=True)
-plot(m4, "C3", ax[1, 1], show_xs=False)
+plot_univariate(GPR, "C0", ax[0, 0], show_xs=True)
+plot_univariate(SGPR, "C1", ax[0, 1], show_xs=True)
+plot_univariate(FITC, "C2", ax[1, 0], show_xs=True)
+plot_univariate(PITC, "C3", ax[1, 1], show_xs=False)
 plt.show()
 
 # #####################################
@@ -110,94 +149,47 @@ plt.show()
 # #####################################
 
 # Load data FIXME: remove skiprows
-kin40k_toy = np.loadtxt("data/kin40k/kin40k_train_data.asc", skiprows=9000) # Toy example of kin40k
-kin40k_toy_l = np.loadtxt("data/kin40k/kin40k_train_labels.asc", skiprows=9000).reshape(-1, 1) # Toy example of kin40k
-kin40k_test_toy = np.loadtxt("data/kin40k/kin40k_test_data.asc", skiprows=29000) # Toy example of kin40k
-kin40k_test_toy_l = np.loadtxt("data/kin40k/kin40k_test_labels.asc", skiprows=29000) # Toy example of kin40k
-N = len(kin40k_toy)
-N_t = len(kin40k_test_toy)
-N_ind = len(kin40k_toy) * 0.01  # REVIEW: Proportion of inducing points?
-n_dim = kin40k_toy.shape[1]
+kin40k = np.loadtxt("data/kin40k/kin40k_train_data.asc", skiprows=9000) # Toy example of kin40k
+kin40k_l = np.loadtxt("data/kin40k/kin40k_train_labels.asc", skiprows=9000).reshape(-1, 1) # Toy example of kin40k
+kin40k_test = np.loadtxt("data/kin40k/kin40k_test_data.asc", skiprows=29000) # Toy example of kin40k
+kin40k_test_l = np.loadtxt("data/kin40k/kin40k_test_labels.asc", skiprows=29000).reshape(-1, 1) # Toy example of kin40k
+N = len(kin40k)
+N_t = len(kin40k_test)
+N_ind = len(kin40k) * 0.01  # REVIEW: Proportion of inducing points?
+n_dim = kin40k.shape[1]
 
 kin40k_data = (
-    tf.convert_to_tensor(kin40k_toy, dtype=default_float()),
-    tf.convert_to_tensor(kin40k_toy_l, dtype=default_float()),
+    tf.convert_to_tensor(kin40k, dtype=default_float()),
+    tf.convert_to_tensor(kin40k_l, dtype=default_float()),
 )
-kin40k_ind = kin40k_toy[0:N-1:int(N/N_ind)]
+kin40k_test_data = (
+    tf.convert_to_tensor(kin40k_test, dtype=default_float()),
+    tf.convert_to_tensor(kin40k_test_l, dtype=default_float()),
+)
+kin40k_ind = kin40k[0:N-1:int(N/N_ind)]
 kin40k_ind = tf.convert_to_tensor(kin40k_ind, dtype=default_float())
-data = kin40k_data
-
-
-# Create models function for future use
-def create_models(data,
-                  kernel,
-                  inducing_variable,
-                  optimize=True,
-                  opt= gpflow.optimizers.Scipy(),  # BFGS
-                  niter = 1000
-                  ):
-
-    m1 = gpflow.models.GPR(data, kernel=kernel)
-
-    m2 = gpflow.models.SGPR(
-        data, kernel=kernel, inducing_variable=inducing_variable
-    )
-    set_trainable(m2.inducing_variable, False)
-
-    m3 = gpflow.models.GPRFITC(
-        data, kernel=kernel, inducing_variable=inducing_variable
-    )
-    set_trainable(m3.inducing_variable, False)
-
-    m4 = gpflow.models.GPRPITC(
-        data, kernel=kernel, inducing_variable=inducing_variable
-    )
-    set_trainable(m4.inducing_variable, False)
-
-    models = [m1, m2] #FIXME:
-
-    for model in models:
-        print_summary(model)
-
-    if optimize:
-        # Optimize models
-        for model in models:
-            print("Starting training of ", type(model).__name__)
-            loss_closure = training_loss_closure(model, data)
-            opt.minimize(
-                loss_closure,
-                variables=model.trainable_variables,
-                options=dict(maxiter=ci_niter(niter)),
-                compile=True,
-            )
-            print("Finished training of ", type(model).__name__)
-
-    return models
-
 
 # https://github.com/GPflow/GPflow/issues/1606
 # kin40k_m1, kin40k_m2, kin40k_m3, kin40k_m4 = create_models(kin40k_data, gpflow.kernels.Matern32(ndim=n_dim), kin40k_ind)
-models = create_models(kin40k_data, gpflow.kernels.Matern32(lengthscales=np.ones(n_dim)), kin40k_ind)
+models, times = create_models(kin40k_data, gpflow.kernels.Matern32(lengthscales=np.ones(n_dim)), kin40k_ind)
+GPR, SGPR, FITC, PITC  = models
 
-# FIXME: check number of dimensions
-def plot_models(models):
-    nrow = int(np.floor(np.sqrt(len(models))))
-    ncol = int(np.ceil(len(models)/nrow))
-    f, ax = plt.subplots(nrow, ncol, figsize=(12, 9), sharex=True, sharey=True)
-    for i,j in zip(range(nrow), range(ncol)):
-        try:
-            plot(models[i*nrow+j], "C"+str(i*nrow+j), ax[i, j], show_xs=True)
-        except:
-            plot(models[i*nrow+j], "C"+str(i*nrow+j), ax[j], show_xs=True)
-    plt.show()
+mse_test(GPR, kin40k_test_data)
+mse_test(SGPR, kin40k_test_data)
+mse_test(FITC, kin40k_test_data)
+mse_test(PITC, kin40k_test_data)
 
-plot_models(models)
 
+nlpd_test(GPR, kin40k_test_data)
+nlpd_test(SGPR, kin40k_test_data)
+nlpd_test(FITC, kin40k_test_data)
+nlpd_test(PITC, kin40k_test_data)
 
 
 # #####################################
 # TESTING PLAYGROUND
 # #####################################
+# from GPflow.gpflow.covariances.dispatch import Kuf, Kuu
 # # Test PITC "common_terms()" method
 # # m4.common_terms()
 # X_data, Y_data = m4.data
