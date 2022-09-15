@@ -50,36 +50,37 @@ def create_models(data,
                   niter=100,
                   verbose=False
                   ):
-
+    ndim=data[0].shape[1]
     kernel = gpflow.kernels.SquaredExponential() # REVIEW: check other kernels
+    kernel = gpflow.kernels.Matern32(lengthscales=np.ones(n_dim))
     m1 = gpflow.models.GPR(data, kernel=kernel)
 
-    kernel = gpflow.kernels.SquaredExponential()
+    kernel = gpflow.kernels.Matern32(lengthscales=np.ones(n_dim))
     m2 = gpflow.models.SGPR(
         data, kernel=kernel, inducing_variable=inducing_variable
     )
     set_trainable(m2.inducing_variable, False)
 
-    kernel = gpflow.kernels.SquaredExponential()
+    kernel = gpflow.kernels.Matern32(lengthscales=np.ones(n_dim))
     m3 = gpflow.models.GPRFITC(
         data, kernel=kernel, inducing_variable=inducing_variable
     )
     set_trainable(m3.inducing_variable, False)
 
-    kernel = gpflow.kernels.Matern32()
+    kernel = gpflow.kernels.Matern32(lengthscales=np.ones(n_dim))
     m4 = gpflow.models.GPRPITC(
         data, kernel=kernel, inducing_variable=inducing_variable
     )
     set_trainable(m4.inducing_variable, False)
 
-    # kernel = gpflow.kernels.Matern32()
+    # kernel = gpflow.kernels.Matern32(lengthscales=np.ones(n_dim))
     # m5 = gpflow.models.GPRPIC(
     #     data, kernel=kernel, inducing_variable=inducing_variable
     # )
     # set_trainable(m5.inducing_variable, False)
 
 
-    models = [m1,m2,m3,m4]
+    models = [m2,m3,m4]
 
     if verbose:
         for model in models:
@@ -109,7 +110,7 @@ def create_models(data,
 # m.predict_f_samples -> returns samples of the latent function.
 # m.predict_y -> returns the mean and variance of a new data point (that is, it includes the noise variance).
 def mse_test(model, test_data):
-    test_set, test_labels = data
+    test_set, test_labels = test_data
     X_t = tf.convert_to_tensor(test_set, dtype=default_float())
     mean, var = model.predict_y(X_t)
     return mean_squared_error(mean, test_labels)
@@ -118,7 +119,7 @@ def mse_test(model, test_data):
 # REVIEW: is this the correct formula?
 # m.predict_density -> returns the log density of the observations Ynew at Xnew.
 def nlpd_test(model, test_data):
-    N = len(test_data[0])
+    N = test_data[0].shape[0]
     return 1/N*np.sum(model.predict_log_density(test_data))
 
 
@@ -163,41 +164,41 @@ def error_vs_time(times, mses, nlpds,
 # #####################################
 
 # Load data
-np.random.seed(42)
-N = 1000
-N_t = 100
-N_ind = 10
-X = np.random.rand(N, 1) * 10
-Y = np.sin(X) + 0.9 * np.cos(X * 1.6) + np.random.randn(*X.shape) * 0.4
-Xtest = np.random.rand(N_t, 1) * 10
-# _ = plt.plot(X, Y, "kx", mew=2)
+# np.random.seed(42)
+# N = 1000
+# N_t = 100
+# N_ind = 10
+# X = np.random.rand(N, 1) * 10
+# Y = np.sin(X) + 0.9 * np.cos(X * 1.6) + np.random.randn(*X.shape) * 0.4
+# Xtest = np.random.rand(N_t, 1) * 10
+# # _ = plt.plot(X, Y, "kx", mew=2)
+# # plt.show()
+
+# data = (
+#     tf.convert_to_tensor(X, dtype=default_float()),
+#     tf.convert_to_tensor(Y, dtype=default_float()),
+# )
+# X_ind = X[0:N-1:int(N/N_ind)]
+# inducing_variable = tf.convert_to_tensor(X_ind, dtype=default_float())
+
+# # Create models
+# models, _ = create_models(data, inducing_variable)
+#
+# GPR, SGPR, FITC, PITC = models  # REVIEW: find out what is so slow in PITC (see testing area)
+# LocalGPR = gpflow.models.LocalGPR(data,gpflow.kernels.SquaredExponential(), num_blocks=10)
+# LocalGPR.optimize()
+
+#
+# # Plot results
+# f, ax = plt.subplots(3, 2, figsize=(12, 9), sharex=False, sharey=False)
+# plot_univariate(GPR, "C0", ax[0, 0], show_xs=True)
+# plot_univariate(SGPR, "C1", ax[0, 1], show_xs=True)
+# plot_univariate(FITC, "C2", ax[1, 0], show_xs=True)
+# plot_univariate(PITC, "C3", ax[1, 1], show_xs=True, lims=[-1,6])
+# # plot_univariate(PIC, "C4", ax[2, 0], show_xs=False)
+# plot_univariate(LocalGPR, "C5", ax[2, 1], show_xs=True)
 # plt.show()
 
-data = (
-    tf.convert_to_tensor(X, dtype=default_float()),
-    tf.convert_to_tensor(Y, dtype=default_float()),
-)
-X_ind = X[0:N-1:int(N/N_ind)]
-inducing_variable = tf.convert_to_tensor(X_ind, dtype=default_float())
-
-# Create models
-models, _ = create_models(data, inducing_variable)
-
-GPR, SGPR, FITC, PITC = models  # REVIEW: find out what is so slow in PITC (see testing area)
-LocalGPR = gpflow.models.LocalGPR(data,gpflow.kernels.SquaredExponential(), num_blocks=100)
-LocalGPR.optimize()
-
-# Plot results
-f, ax = plt.subplots(3, 2, figsize=(12, 9), sharex=False, sharey=False)
-plot_univariate(GPR, "C0", ax[0, 0], show_xs=True)
-plot_univariate(SGPR, "C1", ax[0, 1], show_xs=True)
-plot_univariate(FITC, "C2", ax[1, 0], show_xs=True)
-plot_univariate(PITC, "C3", ax[1, 1], show_xs=True, lims=[-1,6])
-# plot_univariate(PIC, "C4", ax[2, 0], show_xs=False)
-plot_univariate(LocalGPR, "C5", ax[2, 1], show_xs=True)
-plt.show()
-
-sys.exit()
 
 # #####################################
 # TODO: KIN40K (d=9)
@@ -205,8 +206,8 @@ sys.exit()
 # 40,000 records describing the location of a robotic arm as a function of an 8-dimensional control input
 
 # Load data
-kin40k = np.loadtxt("data/kin40k/kin40k_train_data.asc", skiprows=9000) # Toy example of kin40k
-kin40k_l = np.loadtxt("data/kin40k/kin40k_train_labels.asc", skiprows=9000).reshape(-1, 1) # Toy example of kin40k
+kin40k = np.loadtxt("data/kin40k/kin40k_train_data.asc") # Toy example of kin40k
+kin40k_l = np.loadtxt("data/kin40k/kin40k_train_labels.asc").reshape(-1, 1) # Toy example of kin40k
 kin40k_test = np.loadtxt("data/kin40k/kin40k_test_data.asc", skiprows=29000) # Toy example of kin40k
 kin40k_test_l = np.loadtxt("data/kin40k/kin40k_test_labels.asc", skiprows=29000).reshape(-1, 1) # Toy example of kin40k
 N = len(kin40k)
@@ -226,25 +227,31 @@ kin40k_ind = kin40k[0:N-1:int(N/N_ind)]
 kin40k_ind = tf.convert_to_tensor(kin40k_ind, dtype=default_float())
 
 # https://github.com/GPflow/GPflow/issues/1606
-# kin40k_m1, kin40k_m2, kin40k_m3, kin40k_m4 = create_models(kin40k_data, gpflow.kernels.Matern32(ndim=n_dim), kin40k_ind)
-models, times = create_models(kin40k_data, gpflow.kernels.Matern32(lengthscales=np.ones(n_dim)), kin40k_ind)
-GPR, SGPR, FITC, PITC, PIC = models
+models, times = create_models(kin40k_data, kin40k_ind)
+# GPR, SGPR, FITC, PITC, PIC = models
+SGPR, FITC, PITC = models
+
+LocalGPR = gpflow.models.LocalGPR(kin40k_data,  gpflow.kernels.SquaredExponential(lengthscales=np.ones(n_dim)), num_blocks=100)
+times.append(sum(LocalGPR.optimize()))
 
 # Evaluation of kin40k
-kin40k_mses = [mse_test(GPR, kin40k_test_data),
+kin40k_mses = [#mse_test(GPR, kin40k_test_data),
                mse_test(SGPR, kin40k_test_data),
                mse_test(FITC, kin40k_test_data),
-               mse_test(PITC, kin40k_test_data)]
+               # mse_test(PITC, kin40k_test_data),
+               mse_test(LocalGPR, kin40k_test_data)]
 
-kin40k_nlpd = [nlpd_test(GPR, kin40k_test_data),
+kin40k_nlpd = [#nlpd_test(GPR, kin40k_test_data),
                nlpd_test(SGPR, kin40k_test_data),
                nlpd_test(FITC, kin40k_test_data),
-               nlpd_test(PITC, kin40k_test_data)]
+               #nlpd_test(PITC, kin40k_test_data)
+               nlpd_test(LocalGPR, kin40k_test_data)]
 
 
 error_vs_time(times, kin40k_mses, kin40k_nlpd)
 plt.show()
 
+sys.exit()
 
 # #####################################
 # TODO: SARCOS
