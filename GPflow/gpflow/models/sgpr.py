@@ -777,4 +777,12 @@ class LocalGPR():
         return preds_means, preds_var
 
     def predict_log_density(self, Xnew: InputData):
-        pass
+        Xnew, Ynew = Xnew
+        blocks = self.km.predict(Xnew)
+        preds_ld = np.zeros(Xnew.shape[0])
+        for b in range(self.num_blocks):
+            X_test_b = tf.gather(Xnew, np.where(blocks == b)[0])
+            Y_test_b = tf.gather(Ynew, np.where(blocks == b)[0])
+            ld = self.models[b].predict_log_density((X_test_b,Y_test_b))
+            preds_ld[np.where(blocks == b)[0]] = ld
+        return preds_ld
