@@ -546,33 +546,25 @@ class GPRPITC(GPRFITC):
         # k = n/m blocks]
         X_data, _ = self.data
         num_blocks = int(X_data.shape[0] / self.num_inducing)
-        km = KMeans(n_clusters=num_blocks)
-        km.fit(X_data)
-        self.blocks = km.labels_
-        self.num_blocks = num_blocks
-        self.km = km
+        self.blocks = []
+        step = int(X_data.shape[0] / num_blocks)
+        for b in range(num_blocks):
+            block = [step*b,step*(b+1)]
+            self.blocks.append(block)
+
 
     # REVIEW:
     def common_terms(self):
         X_data, Y_data = self.data
-        N = X_data.shape[0]
-        num_inducing = self.num_inducing
+        num_inducing = self.inducing_variable.num_inducing
         err = Y_data - self.mean_function(X_data)  # size [N, R] = [1000, 1]
-
+        blocks = []
         self.construct_blocks()
-
-        # Resort X_data by K-means clustering
-        sort_by_block = np.argsort(self.blocks)
-        X_data = tf.gather(X_data, sort_by_block) # [x for _, x in np.sort(zip(self.blocks, X_data))]
-        blocks = self.blocks[sort_by_block]
-
-        full_cov = self.kernel(X_data, full_cov=True)
-        bdiag_bin = np.zeros((N, N))
-        for block in range(self.num_blocks):
-            aux_matrix = np.mat(blocks == block).T * np.mat(blocks == block)
-            bdiag_bin += aux_matrix
-        bdiag_bin = np.float64(bdiag_bin)
-        Kbdiag = tf.linalg.matmul(full_cov, bdiag_bin)
+        for block in self.blocks:
+            k = self.kernel(X_data[block[0]:block[1]], full_cov=True) # Each block matrix passed through Cov. fct.
+            blocks.append(k)
+        Kbdiag = [tf.linalg.LinearOperatorFullMatrix(block) for block in blocks]
+        Kbdiag = tf.linalg.LinearOperatorBlockDiag(Kbdiag).to_dense()
 
         kuf = Kuf(self.inducing_variable, self.kernel, X_data)
         kuu = Kuu(self.inducing_variable, self.kernel, jitter=default_jitter())
@@ -580,25 +572,31 @@ class GPRPITC(GPRFITC):
         Luu = tf.linalg.cholesky(kuu)  # => Luu Luu^T = kuu
         V = tf.linalg.triangular_solve(Luu, kuf)  # => V^T V = Qff = kuf^T kuu^-1 kuf
 
+        blocks=[]
         bdiagQff = tf.linalg.matmul(tf.transpose(V), V)
-        bdiagQff = tf.linalg.matmul(bdiagQff, bdiag_bin)
+        for block in self.blocks:
+             k = bdiagQff[block[0]:block[1], block[0]:block[1]]
+             blocks.append(k)
+        bdiagQff = [tf.linalg.LinearOperatorFullMatrix(block) for block in blocks]
+        bdiagQff = tf.linalg.LinearOperatorBlockDiag(bdiagQff).to_dense()
 
-        nu = Kbdiag - bdiagQff + tf.eye(X_data.shape[0], dtype=np.float64) * self.likelihood.variance
+        nu = Kbdiag - bdiagQff + tf.eye(X_data.shape[0], dtype=np.float64)*self.likelihood.variance
 
         nuinv = tf.linalg.inv(nu)
 
         Baux = tf.linalg.matmul(V, nuinv)
         B = tf.eye(num_inducing, dtype=default_float()) + tf.linalg.matmul(
-            Baux, V, transpose_b=True
+        Baux, V, transpose_b=True
         )
         L = tf.linalg.cholesky(B)
 
-        beta = tf.linalg.matmul(nuinv, err)  # size [N, R]
+        beta = tf.linalg.matmul(nuinv, err) # size [N, R]
         alpha = tf.linalg.matmul(V, beta)  # size [N, R]
 
         gamma = tf.linalg.triangular_solve(L, alpha, lower=True)  # size [N, R]
 
         return err, nu, Luu, L, alpha, beta, gamma
+
 
 
     def maximum_log_likelihood_objective(self) -> tf.Tensor:
@@ -607,6 +605,7 @@ class GPRPITC(GPRFITC):
     # REVIEW:
     def pitc_log_marginal_likelihood(self):
         err, nu, Luu, L, alpha, beta, gamma = self.common_terms()
+
         nuinv = tf.linalg.inv(nu)
         aux = tf.linalg.matmul(nuinv, tf.square(err))
 

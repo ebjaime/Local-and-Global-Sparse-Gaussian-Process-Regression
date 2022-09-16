@@ -55,35 +55,35 @@ def create_models(data,
                   ):
     ndim=data[0].shape[1]
     kernel = gpflow.kernels.SquaredExponential() # REVIEW: check other kernels
-    kernel = gpflow.kernels.Matern32(lengthscales=np.ones(n_dim))
+    kernel = gpflow.kernels.Matern32(lengthscales=np.ones(ndim))
     m1 = gpflow.models.GPR(data, kernel=kernel)
 
-    kernel = gpflow.kernels.Matern32(lengthscales=np.ones(n_dim))
+    kernel = gpflow.kernels.Matern32(lengthscales=np.ones(ndim))
     m2 = gpflow.models.SGPR(
         data, kernel=kernel, inducing_variable=inducing_variable
     )
     set_trainable(m2.inducing_variable, False)
 
-    kernel = gpflow.kernels.Matern32(lengthscales=np.ones(n_dim))
+    kernel = gpflow.kernels.Matern32(lengthscales=np.ones(ndim))
     m3 = gpflow.models.GPRFITC(
         data, kernel=kernel, inducing_variable=inducing_variable
     )
     set_trainable(m3.inducing_variable, False)
 
-    kernel = gpflow.kernels.Matern32(lengthscales=np.ones(n_dim))
+    kernel = gpflow.kernels.Matern32(lengthscales=np.ones(ndim))
     m4 = gpflow.models.GPRPITC(
         data, kernel=kernel, inducing_variable=inducing_variable
     )
     set_trainable(m4.inducing_variable, False)
 
-    # kernel = gpflow.kernels.Matern32(lengthscales=np.ones(n_dim))
+    # kernel = gpflow.kernels.Matern32(lengthscales=np.ones(ndim))
     # m5 = gpflow.models.GPRPIC(
     #     data, kernel=kernel, inducing_variable=inducing_variable
     # )
     # set_trainable(m5.inducing_variable, False)
 
 
-    models = [m2,m3,m4]
+    models = [m1,m2,m3,m4]
 
     if verbose:
         for model in models:
@@ -185,7 +185,7 @@ X_ind = X[0:N-1:int(N/N_ind)]
 inducing_variable = tf.convert_to_tensor(X_ind, dtype=default_float())
 
 # Create models
-models, _ = create_models(data, inducing_variable)
+models, _ = create_models(data, inducing_variable, optimize=False)
 
 GPR, SGPR, FITC, PITC = models  # REVIEW: find out what is so slow in PITC (see testing area)
 LocalGPR = gpflow.models.LocalGPR(data,gpflow.kernels.SquaredExponential(), num_blocks=10)
@@ -201,6 +201,7 @@ plot_univariate(PITC, "C3", ax[1, 1], show_xs=True, lims=[-1,6])
 # plot_univariate(PIC, "C4", ax[2, 0], show_xs=False)
 plot_univariate(LocalGPR, "C5", ax[2, 1], show_xs=True)
 plt.show()
+sys.exit()
 
 
 # #####################################
@@ -371,11 +372,11 @@ plt.show()
 # TESTING PLAYGROUND
 # #####################################
 # from GPflow.gpflow.covariances.dispatch import Kuf, Kuu
-# m3=FITC
+# # m3=FITC
 # m4=PITC
-# m5=PIC
-# #######################################
-# # Test PI(T)C "commont_terms()" method
+# # m5=PIC
+# # #######################################
+# # # Test PI(T)C "commont_terms()" method
 # X_data, Y_data =m4.data
 # N = X_data.shape[0]
 # num_inducing = m4.inducing_variable.num_inducing
@@ -384,9 +385,12 @@ plt.show()
 # m4.construct_blocks()
 #
 # # Resort X_data by K-means clustering
+# original_index = np.array(range(N))
 # sort_by_block = np.argsort(m4.blocks)
 # X_data = tf.gather(X_data, sort_by_block) # [x for _, x in np.sort(zip(self.blocks, X_data))]
 # blocks = m4.blocks[sort_by_block]
+# original_index = original_index[sort_by_block]
+#
 #
 # full_cov = m4.kernel(X_data, full_cov=True)
 # bdiag_bin = np.zeros((N, N))
@@ -397,6 +401,10 @@ plt.show()
 # bdiag_bin = np.float64(bdiag_bin)
 # Kbdiag = tf.linalg.matmul(full_cov, bdiag_bin)
 #
+# plt.imshow(Kbdiag)
+# plt.show()
+#
+#
 # kuf = Kuf(m4.inducing_variable, m4.kernel, X_data)
 # kuu = Kuu(m4.inducing_variable, m4.kernel, jitter=default_jitter())
 #
@@ -404,7 +412,9 @@ plt.show()
 # V = tf.linalg.triangular_solve(Luu, kuf)  # => V^T V = Qff = kuf^T kuu^-1 kuf
 #
 # bdiagQff = tf.linalg.matmul(tf.transpose(V), V)
+#
 # bdiagQff = tf.linalg.matmul(bdiagQff, bdiag_bin)
+#
 #
 # nu = Kbdiag - bdiagQff + tf.eye(X_data.shape[0], dtype=np.float64) * m4.likelihood.variance
 #
@@ -412,7 +422,7 @@ plt.show()
 #
 # Baux = tf.linalg.matmul(V, nuinv)
 # B = tf.eye(num_inducing, dtype=default_float()) + tf.linalg.matmul(
-# Baux, V, transpose_b=True
+#     Baux, V, transpose_b=True
 # )
 # L = tf.linalg.cholesky(B)
 #
@@ -420,7 +430,8 @@ plt.show()
 # alpha = tf.linalg.matmul(V, beta)  # size [N, R]
 #
 # gamma = tf.linalg.triangular_solve(L, alpha, lower=True)  # size [N, R]
-
+#
+#
 ########################################################
 # # Test PI(T)C "construct_blocks()" method
 # from sklearn.cluster import KMeans
