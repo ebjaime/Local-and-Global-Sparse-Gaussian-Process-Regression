@@ -3,4 +3,4 @@ Gaussian process (GP) models are flexible probabilistic nonparametric models for
 
 The ![GPflow](https://github.com/GPflow/GPflow) was modified and is so added to this repository for the proper execution of the programs. All the modifications made are tagged with a *REVIEW* tag.
 
-[CST @ Polimi - 2020/21]
+[CST @ Polimi - 2021/22]
